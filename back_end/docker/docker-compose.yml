@@ -1,0 +1,88 @@
+version: "3.8"
+
+networks:
+  main_network:
+    driver: bridge
+  redis_network:
+    driver: bridge
+  mysql_network:
+    driver: bridge
+
+services:
+  nginx_api_gateway:
+    container_name: nginx_api_gateway
+    build:
+      context: ./nginx_api_gateway
+    ports:
+      - "3002:80"
+    volumes:
+      - ./nginx_api_gateway/nginx/conf.d:/etc/nginx/conf.d
+      # - ./nginx_api_gateway/nginx:/etc/nginx/
+    networks:
+      - main_network
+
+  redis:
+    container_name: redis
+    build:
+      context: ./redis
+    ports:
+      - "6379:6379"
+    networks:
+      - redis_network
+
+  mysql:
+    container_name: mysql
+    build:
+      context: ./mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    ports:
+      - "3306:3306"
+    networks:
+      - mysql_network
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+
+  video_services:
+    container_name: video_services
+    build:
+      context: ../video_services
+    ports:
+      - "5001:5001"
+    mem_limit: 2g
+    memswap_limit: 4g
+    networks:
+      - redis_network
+      - main_network
+    cpus: "4"
+    environment:
+      - REDIS_SERVER=redis
+    volumes:
+      - ../video_services:/usr/src/app
+      - /usr/src/app/node_modules
+
+    command: npm start
+
+  auth_services:
+    container_name: go_auth
+    build:
+      context: ../auth_services
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      - DB_USER=root
+      - DB_PASS=root
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_NAME=spax
+    volumes:
+      - ../auth_services:/usr/src/app
+      # - /usr/src/app/go.mod
+    networks:
+      - mysql_network
+#  docker compose -p spax_backend up -d
